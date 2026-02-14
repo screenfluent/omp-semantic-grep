@@ -1,0 +1,15 @@
+{
+	"name": "omp-semantic-grep",
+	"version": "1.0.0",
+	"description": "Hybrid grep extension for oh-my-pi: ripgrep + colgrep semantic search",
+	"license": "MIT",
+	"author": "Szymon Raczka",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/screenfluent/omp-semantic-grep"
+	},
+	"keywords": ["omp", "oh-my-pi", "grep", "semantic-search", "ripgrep", "colgrep", "extension"],
+	"omp": {
+		"extensions": ["grep.ts"]
+	}
+}

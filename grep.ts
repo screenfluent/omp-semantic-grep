@@ -214,11 +214,14 @@ const extension = (pi: any) => {
 			text.includes("not found");
 	}
 
-	/** Parse rg --stats output from stderr */
-	function parseRgStats(stderr: string): { filesSearched: number; filesMatched: number } {
-		const searched = stderr.match(/(\d+) files? searched/);
-		const matched = stderr.match(/(\d+) files? contained matches/);
+	/** Parse rg --stats and strip stats block from output */
+	function parseAndStripRgStats(stdout: string): { clean: string; filesSearched: number; filesMatched: number } {
+		const searched = stdout.match(/(\d+) files? searched/);
+		const matched = stdout.match(/(\d+) files? contained matches/);
+		// Strip stats block (starts at "N matches" or "0 matches", runs to end)
+		const clean = stdout.replace(/\n?\d+ matches?\n[\s\S]*$/, "").trim();
 		return {
+			clean,
 			filesSearched: searched ? parseInt(searched[1], 10) : -1,
 			filesMatched: matched ? parseInt(matched[1], 10) : -1,
 		};
@@ -326,9 +329,10 @@ const extension = (pi: any) => {
 			};
 		}
 
-		// Parse rg --stats from stderr
-		const stats = parseRgStats(result.stderr || "");
-		let stdout = result.stdout?.trim();
+		// Parse and strip rg --stats from stdout (rg 15.x prints stats to stdout)
+		const rawStdout = result.stdout?.trim() || "";
+		const stats = parseAndStripRgStats(rawStdout);
+		let stdout = stats.clean;
 		if (!stdout || result.code === 1) {
 			const header = `[s:${stats.filesSearched} m:0 complete]`;
 			return {

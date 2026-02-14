@@ -330,7 +330,7 @@ const extension = (pi: any) => {
 		const stats = parseRgStats(result.stderr || "");
 		let stdout = result.stdout?.trim();
 		if (!stdout || result.code === 1) {
-			const header = `[${stats.filesSearched} files searched, 0 matched, search complete]`;
+			const header = `[s:${stats.filesSearched} m:0 complete]`;
 			return {
 				content: [{ type: "text", text: `${header}\nNo matches found` }],
 				isError: false,
@@ -360,7 +360,7 @@ const extension = (pi: any) => {
 			}
 			stdout = kept.join("\n").trim();
 			if (!stdout) {
-				const header = `[${stats.filesSearched} files searched, 0 after offset, search complete]`;
+				const header = `[s:${stats.filesSearched} m:0 complete]`;
 				return {
 					content: [{ type: "text", text: `${header}\nNo matches found` }],
 					isError: false,
@@ -380,7 +380,7 @@ const extension = (pi: any) => {
 			}
 		}
 		const matchCount = outputLines.filter((l: string) => l.match(/^\d+:/)).length;
-		const header = `[${stats.filesSearched} files searched, ${stats.filesMatched} matched, search complete]`;
+		const header = `[s:${stats.filesSearched} m:${stats.filesMatched} complete]`;
 		const details: GrepDetails = {
 			resultCount: matchCount || files.length,
 			pattern: params.pattern,
@@ -459,7 +459,7 @@ const extension = (pi: any) => {
 		const indexedMatch = result.stderr?.match(/(\d+) files/);
 		const filesSearched = indexedMatch ? parseInt(indexedMatch[1], 10) : -1;
 		if (!stdout || stdout.startsWith("No results found")) {
-			const header = `[${filesSearched > 0 ? filesSearched + " files indexed" : "index used"}, 0 matched, search complete]`;
+			const header = `[ix:${filesSearched > 0 ? filesSearched : "?"} m:0 complete]`;
 			return {
 				content: [{ type: "text", text: `${header}\nNo matches found` }],
 				isError: false,
@@ -483,7 +483,7 @@ const extension = (pi: any) => {
 
 		// Count unique files matched
 		const uniqueFiles = new Set(files.map((f: string) => f.replace(/:.*$/, "")));
-		const header = `[${filesSearched > 0 ? filesSearched + " files indexed" : "index used"}, ${uniqueFiles.size} matched, search complete]`;
+		const header = `[ix:${filesSearched > 0 ? filesSearched : "?"} m:${uniqueFiles.size} complete]`;
 		const details: GrepDetails = {
 			resultCount: files.length || outputLines.filter((l: string) => l.trim()).length,
 			query: params.query,

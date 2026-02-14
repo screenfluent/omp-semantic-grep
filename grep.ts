@@ -18,6 +18,9 @@ interface GrepDetails {
 	files?: string[];
 	engine?: "rg" | "colgrep";
 	fallback?: boolean;
+	filesSearched?: number;
+	filesMatched?: number;
+	searchComplete?: boolean;
 }
 
 /** Globs matching colgrep's is_text_format languages (Markdown, Text, YAML, TOML, JSON, Dockerfile, Makefile, Shell, PowerShell, AsciiDoc, Org) */
@@ -180,6 +183,7 @@ const extension = (pi: any) => {
 			if (details?.searchPath) meta.push(`in ${details.searchPath}`);
 			if (details?.engine) meta.push(details.engine);
 			if (details?.fallback) meta.push("fallback");
+			if (details?.filesSearched != null && details.filesSearched >= 0) meta.push(`${details.filesSearched} searched`);
 			const header = `${theme.fg("success", "✔")} ${theme.fg("accent", theme.bold("Grep"))} ${theme.fg("muted", meta.join(" · "))}`;
 
 			if (!options.expanded) {
@@ -210,6 +214,16 @@ const extension = (pi: any) => {
 			text.includes("not found");
 	}
 
+	/** Parse rg --stats output from stderr */
+	function parseRgStats(stderr: string): { filesSearched: number; filesMatched: number } {
+		const searched = stderr.match(/(\d+) files? searched/);
+		const matched = stderr.match(/(\d+) files? contained matches/);
+		return {
+			filesSearched: searched ? parseInt(searched[1], 10) : -1,
+			filesMatched: matched ? parseInt(matched[1], 10) : -1,
+		};
+	}
+
 	/** Fallback from colgrep to rg — use pattern if available, else query as literal */
 	async function execRipgrepFallback(params: any, signal: any, ctx: any) {
 		const fallbackParams = { ...params };
@@ -235,6 +249,7 @@ const extension = (pi: any) => {
 			"--line-number",
 			"--heading",
 			"--hidden",
+			"--stats",
 		];
 
 		// Default limit 100 (OMP parity), clamp non-positive to default
@@ -311,15 +326,20 @@ const extension = (pi: any) => {
 			};
 		}
 
+		// Parse rg --stats from stderr
+		const stats = parseRgStats(result.stderr || "");
 		let stdout = result.stdout?.trim();
 		if (!stdout || result.code === 1) {
+			const header = `[${stats.filesSearched} files searched, 0 matched, search complete]`;
 			return {
-				content: [{ type: "text", text: "No matches found" }],
+				content: [{ type: "text", text: `${header}\nNo matches found` }],
 				isError: false,
-				details: { resultCount: 0, pattern: params.pattern, engine: "rg" as const } as GrepDetails,
+				details: {
+					resultCount: 0, pattern: params.pattern, engine: "rg" as const,
+					filesSearched: stats.filesSearched, filesMatched: 0, searchComplete: true,
+				} as GrepDetails,
 			};
 		}
-
 		// Apply offset: skip first N match lines from output
 		const offset = (params.offset && params.offset > 0) ? params.offset : 0;
 		if (offset > 0) {
@@ -330,7 +350,7 @@ const extension = (pi: any) => {
 			for (const line of lines) {
 				if (line && !line.match(/^\d+[:\-]/) && !line.startsWith(" ") && line.trim() !== "--") {
 					currentFile = line;
-					continue; // file header, add later if it has kept matches
+					continue;
 				}
 				if (line.match(/^\d+:/)) {
 					if (skipped < offset) { skipped++; continue; }
@@ -340,10 +360,14 @@ const extension = (pi: any) => {
 			}
 			stdout = kept.join("\n").trim();
 			if (!stdout) {
+				const header = `[${stats.filesSearched} files searched, 0 after offset, search complete]`;
 				return {
-					content: [{ type: "text", text: "No matches found" }],
+					content: [{ type: "text", text: `${header}\nNo matches found` }],
 					isError: false,
-					details: { resultCount: 0, pattern: params.pattern, engine: "rg" as const } as GrepDetails,
+					details: {
+						resultCount: 0, pattern: params.pattern, engine: "rg" as const,
+						filesSearched: stats.filesSearched, filesMatched: 0, searchComplete: true,
+					} as GrepDetails,
 				};
 			}
 		}
@@ -356,14 +380,18 @@ const extension = (pi: any) => {
 			}
 		}
 		const matchCount = outputLines.filter((l: string) => l.match(/^\d+:/)).length;
+		const header = `[${stats.filesSearched} files searched, ${stats.filesMatched} matched, search complete]`;
 		const details: GrepDetails = {
 			resultCount: matchCount || files.length,
 			pattern: params.pattern,
 			searchPath: params.path || ctx.cwd,
 			files,
 			engine: "rg",
+			filesSearched: stats.filesSearched,
+			filesMatched: stats.filesMatched,
+			searchComplete: true,
 		};
-		return { content: [{ type: "text", text: stdout }], isError: false, details };
+		return { content: [{ type: "text", text: `${header}\n${stdout}` }], isError: false, details };
 	}
 
 	// ── colgrep engine ──────────────────────────────────────────────────────
@@ -427,14 +455,20 @@ const extension = (pi: any) => {
 		}
 
 		const stdout = result.stdout?.replace(/\x1B\[[0-9;]*m/g, "").trim();
+		// Parse indexed file count from colgrep stderr
+		const indexedMatch = result.stderr?.match(/(\d+) files/);
+		const filesSearched = indexedMatch ? parseInt(indexedMatch[1], 10) : -1;
 		if (!stdout || stdout.startsWith("No results found")) {
+			const header = `[${filesSearched > 0 ? filesSearched + " files indexed" : "index used"}, 0 matched, search complete]`;
 			return {
-				content: [{ type: "text", text: "No matches found" }],
+				content: [{ type: "text", text: `${header}\nNo matches found` }],
 				isError: false,
-				details: { resultCount: 0, query: params.query, pattern: params.pattern, engine: "colgrep" as const } as GrepDetails,
+				details: {
+					resultCount: 0, query: params.query, pattern: params.pattern,
+					engine: "colgrep" as const, filesSearched, filesMatched: 0, searchComplete: true,
+				} as GrepDetails,
 			};
 		}
-
 		// Parse colgrep plaintext output for file paths
 		const outputLines = stdout.split("\n");
 		const files: string[] = [];
@@ -444,10 +478,12 @@ const extension = (pi: any) => {
 			if (match) { files.push(`${match[1]}:${match[2]}`); continue; }
 			const fileMatch = line.match(/^file:\s+(.+)/);
 			if (fileMatch) { files.push(fileMatch[1]); continue; }
-			// files_only mode: colgrep prints one path per line
 			if (params.files_only && !line.startsWith(" ")) files.push(line.trim());
 		}
 
+		// Count unique files matched
+		const uniqueFiles = new Set(files.map((f: string) => f.replace(/:.*$/, "")));
+		const header = `[${filesSearched > 0 ? filesSearched + " files indexed" : "index used"}, ${uniqueFiles.size} matched, search complete]`;
 		const details: GrepDetails = {
 			resultCount: files.length || outputLines.filter((l: string) => l.trim()).length,
 			query: params.query,
@@ -455,8 +491,11 @@ const extension = (pi: any) => {
 			searchPath: params.path || ctx.cwd,
 			files,
 			engine: "colgrep",
+			filesSearched,
+			filesMatched: uniqueFiles.size,
+			searchComplete: true,
 		};
-		return { content: [{ type: "text", text: stdout }], isError: false, details };
+		return { content: [{ type: "text", text: `${header}\n${stdout}` }], isError: false, details };
 	}
 };
 

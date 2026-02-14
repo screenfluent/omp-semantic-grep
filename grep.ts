@@ -436,7 +436,16 @@ const extension = (pi: any) => {
 			}
 		}
 
-		if (params.pattern) args.push("-e", params.pattern);
+		if (params.pattern) {
+			// Workaround colgrep bre_to_ere bug: \( → ( breaks regex.
+			// Rewrite escaped metacharacters to char-class equivalents.
+			const safePattern = params.pattern
+				.replace(/\\\(/g, "[(]")
+				.replace(/\\\)/g, "[)]")
+				.replace(/\\\{/g, "[{]")
+				.replace(/\\\}/g, "[}]");
+			args.push("-e", safePattern);
+		}
 		args.push("--");
 		if (params.query) args.push(params.query);
 		pushSearchPaths(args, params, ctx);
